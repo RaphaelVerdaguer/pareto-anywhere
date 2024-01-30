@@ -1,0 +1,1 @@
+https://kifarunix.com/deploy-elk-stack-8-cluster-on-docker-containers/

@@ -32,7 +32,12 @@ response=$(curl -X POST -s -k -u ${CREDS} "https://${SERVER_IP}:${ES_PORT}/_secu
 ES_PARETO_API_KEY=$(echo "${response}" | grep -oP '(?<="encoded" : ")[^"]*')
 
 # Écrire la clé ES_PARETO_API_KEY dans le fichier API_key.txt
-echo "ES_PARETO_API_KEY=${ES_PARETO_API_KEY}" >> API_key.txt
+if [ -n "${ES_PARETO_API_KEY}" ]; then
+  echo "ES_PARETO_API_KEY=${ES_PARETO_API_KEY}" >> API_key.txt
+
+  # Remplacer la valeur de ES_PARETO_API_KEY dans le fichier .env
+  sed -i "s/^ES_PARETO_API_KEY=.*/ES_PARETO_API_KEY=${ES_PARETO_API_KEY}/" .env
+fi
 
 # Créer la clé ES_BACKEND_API_KEY
 response=$(curl -X POST -s -k -u ${CREDS} "https://${SERVER_IP}:${ES_PORT}/_security/api_key/?pretty" -H 'Content-Type: application/json' -d '
@@ -67,19 +72,16 @@ response=$(curl -X POST -s -k -u ${CREDS} "https://${SERVER_IP}:${ES_PORT}/_secu
 ES_BACKEND_API_KEY=$(echo "${response}" | grep -oP '(?<="encoded" : ")[^"]*')
 
 # Écrire la clé ES_BACKEND_API_KEY dans le fichier API_key.txt
-echo "ES_BACKEND_API_KEY=${ES_BACKEND_API_KEY}" >> API_key.txt
+if [ -n "${ES_BACKEND_API_KEY}" ]; then
+  echo "ES_BACKEND_API_KEY=${ES_BACKEND_API_KEY}" >> API_key.txt
+
+  # Remplacer la valeur de ES_BACKEND_API_KEY dans les fichiers .env de ../app-ble-backend
+  sed -i "s/^ES_BACKEND_API_KEY=.*/ES_BACKEND_API_KEY=${ES_BACKEND_API_KEY}/" ../app-ble-backend/.env
+  sed -i "s/^ES_BACKEND_API_KEY=.*/ES_BACKEND_API_KEY=${ES_BACKEND_API_KEY}/" ../app-ble-backend/.env.test
+  sed -i "s/^ES_BACKEND_API_KEY=.*/ES_BACKEND_API_KEY=${ES_BACKEND_API_KEY}/" ../app-ble-backend/.env.development
+fi
 
 curl -X GET -k -u ${CREDS} "https://${SERVER_IP}:${ES_PORT}/_security/api_key/?pretty" -H 'Content-Type: application/json'
 
 # Afficher le contenu du fichier API_key.txt
 cat API_key.txt
-
-# Remplacer la valeur de ES_PARETO_API_KEY dans le fichier .env
-sed -i "s/^ES_PARETO_API_KEY=.*/ES_PARETO_API_KEY=${ES_PARETO_API_KEY}/" .env
-
-# Remplacer la valeur de ES_BACKEND_API_KEY dans le fichier ../app-ble-backend/.env
-sed -i "s/^ES_BACKEND_API_KEY=.*/ES_BACKEND_API_KEY=${ES_BACKEND_API_KEY}/" ../app-ble-backend/.env
-# Remplacer la valeur de ES_BACKEND_API_KEY dans le fichier ../app-ble-backend/.env.test
-sed -i "s/^ES_BACKEND_API_KEY=.*/ES_BACKEND_API_KEY=${ES_BACKEND_API_KEY}/" ../app-ble-backend/.env.test
-# Remplacer la valeur de ES_BACKEND_API_KEY dans le fichier ../app-ble-backend/.env.development
-sed -i "s/^ES_BACKEND_API_KEY=.*/ES_BACKEND_API_KEY=${ES_BACKEND_API_KEY}/" ../app-ble-backend/.env.development

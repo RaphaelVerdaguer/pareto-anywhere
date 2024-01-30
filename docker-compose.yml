@@ -2,6 +2,8 @@ version: "3.9"
 services:
   pareto-anywhere:
     depends_on:
+      setup:
+        condition: service_healthy
       es01:
         condition: service_healthy
     build:
@@ -23,7 +25,10 @@ services:
         hard: -1
     healthcheck:
       test:
-        ["CMD-SHELL", "curl --fail http://localhost:${PARETO_PORT} || exit 1"]
+        [
+          "CMD-SHELL",
+          "curl --fail http://localhost:${PARETO_PORT} || exit 1"
+        ]
       interval: 1s
       timeout: 5s
       retries: 120
@@ -53,21 +58,21 @@ services:
           echo "Creating certs";
           echo -ne \
           "instances:\n"\
-          "  - name: es01\n"\
+          "  - name: ${NODE1_NAME}\n"\
           "    dns:\n"\
-          "      - es01\n"\
+          "      - ${NODE1_NAME}\n"\
           "      - localhost\n"\
           "    ip:\n"\
           "      - 127.0.0.1\n"\
-          "  - name: es02\n"\
+          "  - name: ${NODE2_NAME}\n"\
           "    dns:\n"\
-          "      - es02\n"\
+          "      - ${NODE2_NAME}\n"\
           "      - localhost\n"\
           "    ip:\n"\
           "      - 127.0.0.1\n"\
-          "  - name: es03\n"\
+          "  - name: ${NODE3_NAME}\n"\
           "    dns:\n"\
-          "      - es03\n"\
+          "      - ${NODE3_NAME}\n"\
           "      - localhost\n"\
           "    ip:\n"\
           "      - 127.0.0.1\n"\
@@ -80,20 +85,30 @@ services:
         find . -type d -exec chmod 750 \{\} \;;
         find . -type f -exec chmod 640 \{\} \;;
         echo "Waiting for Elasticsearch availability";
-        until curl -s --cacert config/certs/ca/ca.crt https://es01:${ES_PORT} | grep -q "missing authentication credentials"; do sleep 30; done;
+        until curl -s --cacert config/certs/ca/ca.crt https://${NODE1_NAME}:${ES_PORT} | grep -q "missing authentication credentials"; do
+        sleep 5
+        echo -n "Waiting for Elasticsearch availability..."
+        done;
         echo "Setting kibana_system password";
-        until curl -s -X POST --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://es01:${ES_PORT}/_security/user/kibana_system/_password -d "{\"password\":\"${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do sleep 10; done;
+        until curl -s -X POST --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://${NODE1_NAME}:${ES_PORT}/_security/user/kibana_system/_password -d "{\"password\":\"${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do
+        sleep 5
+        echo -n "Try setting kibana_system password..."
+        done;
         #echo "Setting kibana ${RAPHAEL_USER} password";
-        curl -X POST --cacert config/certs/ca/ca.crt "https://es01:${ES_PORT}/_security/user/${RAPHAEL_USER}" -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" -d "{\"password\": \"${RAPHAEL_PASSWORD}\", \"enabled\": true, \"roles\": [\"superuser\", \"kibana_admin\"], \"full_name\": \"${RAPHAEL_USER}\", \"email\": \"\", \"metadata\": {\"intelligence\": 1}}"
+        curl -X POST --cacert config/certs/ca/ca.crt "https://${NODE1_NAME}:${ES_PORT}/_security/user/${RAPHAEL_USER}" -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" -d "{\"password\": \"${RAPHAEL_PASSWORD}\", \"enabled\": true, \"roles\": [\"superuser\", \"kibana_admin\"], \"full_name\": \"${RAPHAEL_USER}\", \"email\": \"\", \"metadata\": {\"intelligence\": 1}}"
         #echo "Setting kibana ${MICKAEL_USER} password";
-        curl -X POST --cacert config/certs/ca/ca.crt "https://es01:${ES_PORT}/_security/user/${MICKAEL_USER}" -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" -d "{\"password\": \"${MICKAEL_PASSWORD}\", \"enabled\": true, \"roles\": [\"superuser\", \"kibana_admin\"], \"full_name\": \"${MICKAEL_USER}\", \"email\": \"\", \"metadata\": {\"intelligence\": 1}}"
+        curl -X POST --cacert config/certs/ca/ca.crt "https://${NODE1_NAME}:${ES_PORT}/_security/user/${MICKAEL_USER}" -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" -d "{\"password\": \"${MICKAEL_PASSWORD}\", \"enabled\": true, \"roles\": [\"superuser\", \"kibana_admin\"], \"full_name\": \"${MICKAEL_USER}\", \"email\": \"\", \"metadata\": {\"intelligence\": 1}}"
         #echo "Setting kibana ${BACKEND_USER} password";
-        curl -X POST --cacert config/certs/ca/ca.crt "https://es01:${ES_PORT}/_security/user/${BACKEND_USER}" -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" -d "{\"password\": \"${BACKEND_PASSWORD}\", \"enabled\": true, \"roles\": [\"editor\"], \"full_name\": \"${BACKEND_USER}\", \"email\": \"\", \"metadata\": {\"intelligence\": 1}}"
+        curl -X POST --cacert config/certs/ca/ca.crt "https://${NODE1_NAME}:${ES_PORT}/_security/user/${BACKEND_USER}" -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" -d "{\"password\": \"${BACKEND_PASSWORD}\", \"enabled\": true, \"roles\": [\"editor\"], \"full_name\": \"${BACKEND_USER}\", \"email\": \"\", \"metadata\": {\"intelligence\": 1}}"
         echo "All done!";
       '
     mem_limit: ${MEM_LIMIT_SETUP}
     healthcheck:
-      test: ["CMD-SHELL", "[ -f config/certs/es01/es01.crt ]"]
+      test:
+        [
+          "CMD-SHELL",
+          "[ -f config/certs/${NODE1_NAME}/${NODE1_NAME}.crt ]"
+        ]
       interval: 1s
       timeout: 5s
       retries: 120
@@ -112,35 +127,43 @@ services:
     ports:
       - ${ES_PORT}:${ES_PORT}
     environment:
-      - node.name=es01
-      - node.attr.data=hot
+      - node.name=${NODE1_NAME}
+      - node.attr.data=hot #node.roles=data_hot
       - cluster.name=${CLUSTER_NAME}
-      - cluster.initial_master_nodes=es01,es02,es03
-      - discovery.seed_hosts=es02,es03
+      - cluster.initial_master_nodes=${NODE1_NAME},${NODE2_NAME},${NODE3_NAME}
+      - discovery.seed_hosts=${NODE1_NAME},${NODE2_NAME},${NODE3_NAME}
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
       - bootstrap.memory_lock=true
       - xpack.security.enabled=true
       - xpack.security.http.ssl.enabled=true
-      - xpack.security.http.ssl.key=certs/es01/es01.key
-      - xpack.security.http.ssl.certificate=certs/es01/es01.crt
+      - xpack.security.http.ssl.key=certs/${NODE1_NAME}/${NODE1_NAME}.key
+      - xpack.security.http.ssl.certificate=certs/${NODE1_NAME}/${NODE1_NAME}.crt
       - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
       - xpack.security.http.ssl.verification_mode=certificate
       - xpack.security.transport.ssl.enabled=true
-      - xpack.security.transport.ssl.key=certs/es01/es01.key
-      - xpack.security.transport.ssl.certificate=certs/es01/es01.crt
+      - xpack.security.transport.ssl.key=certs/${NODE1_NAME}/${NODE1_NAME}.key
+      - xpack.security.transport.ssl.certificate=certs/${NODE1_NAME}/${NODE1_NAME}.crt
       - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
       - xpack.security.transport.ssl.verification_mode=certificate
       - xpack.license.self_generated.type=${LICENSE}
+      - KIBANA_USERNAME=${KIBANA_USERNAME}
+      - KIBANA_PASSWORD=${KIBANA_PASSWORD}
     mem_limit: ${MEM_LIMIT_ES}
     ulimits:
       memlock:
         soft: -1
         hard: -1
+      #nofile:
+      #  soft: 65536
+      #  hard: 65536
+      #nproc:
+      #  soft: 2048
+      #  hard: 2048
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "curl -s --cacert config/certs/ca/ca.crt https://localhost:${ES_PORT} | grep -q 'missing authentication credentials'",
+          "curl --fail -k -s -u elastic:${ELASTIC_PASSWORD} --cacert config/certs/ca/ca.crt https://${NODE1_NAME}:9200"
         ]
       interval: 10s
       timeout: 10s
@@ -151,30 +174,33 @@ services:
   es02:
     restart: unless-stopped
     depends_on:
-      - es01
+      - ${NODE1_NAME}
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
     volumes:
       - certs:/usr/share/elasticsearch/config/certs
       - esdata02:/usr/share/elasticsearch/data
     environment:
-      - node.name=es02
-      - node.attr.data=warm
+      - node.name=${NODE2_NAME}
+      - node.attr.data=warm #      - node.roles=data_warm
       - cluster.name=${CLUSTER_NAME}
-      - cluster.initial_master_nodes=es01,es02,es03
-      - discovery.seed_hosts=es01,es03
+      - cluster.initial_master_nodes=${NODE1_NAME},${NODE2_NAME},${NODE3_NAME}
+      - discovery.seed_hosts=${NODE1_NAME},${NODE2_NAME},${NODE3_NAME}
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
       - bootstrap.memory_lock=true
       - xpack.security.enabled=true
       - xpack.security.http.ssl.enabled=true
-      - xpack.security.http.ssl.key=certs/es02/es02.key
-      - xpack.security.http.ssl.certificate=certs/es02/es02.crt
+      - xpack.security.http.ssl.key=certs/${NODE2_NAME}/${NODE2_NAME}.key
+      - xpack.security.http.ssl.certificate=certs/${NODE2_NAME}/${NODE2_NAME}.crt
       - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
       - xpack.security.http.ssl.verification_mode=certificate
       - xpack.security.transport.ssl.enabled=true
-      - xpack.security.transport.ssl.key=certs/es02/es02.key
-      - xpack.security.transport.ssl.certificate=certs/es02/es02.crt
+      - xpack.security.transport.ssl.key=certs/${NODE2_NAME}/${NODE2_NAME}.key
+      - xpack.security.transport.ssl.certificate=certs/${NODE2_NAME}/${NODE2_NAME}.crt
       - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
       - xpack.security.transport.ssl.verification_mode=certificate
       - xpack.license.self_generated.type=${LICENSE}
+      - KIBANA_USERNAME=${KIBANA_USERNAME}
+      - KIBANA_PASSWORD=${KIBANA_PASSWORD}
     mem_limit: ${MEM_LIMIT_ES}
     ulimits:
       memlock:
@@ -184,7 +210,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "curl -s --cacert config/certs/ca/ca.crt https://localhost:${ES_PORT} | grep -q 'missing authentication credentials'",
+          "curl --fail -k -s -u elastic:${ELASTIC_PASSWORD} --cacert config/certs/ca/ca.crt https://${NODE2_NAME}:9200"
         ]
       interval: 10s
       timeout: 10s
@@ -195,40 +221,49 @@ services:
   es03:
     restart: unless-stopped
     depends_on:
-      - es02
+      - ${NODE2_NAME}
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
     volumes:
       - certs:/usr/share/elasticsearch/config/certs
       - esdata03:/usr/share/elasticsearch/data
     environment:
-      - node.name=es03
-      - node.attr.data=cold
+      - node.name=${NODE3_NAME}
+      - node.attr.data=cold #      - node.roles=data_cold
       - cluster.name=${CLUSTER_NAME}
-      - cluster.initial_master_nodes=es01,es02,es03
-      - discovery.seed_hosts=es01,es02
+      - cluster.initial_master_nodes=${NODE1_NAME},${NODE2_NAME},${NODE3_NAME}
+      - discovery.seed_hosts=${NODE1_NAME},${NODE2_NAME},${NODE3_NAME}
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
       - bootstrap.memory_lock=true
       - xpack.security.enabled=true
       - xpack.security.http.ssl.enabled=true
-      - xpack.security.http.ssl.key=certs/es03/es03.key
-      - xpack.security.http.ssl.certificate=certs/es03/es03.crt
+      - xpack.security.http.ssl.key=certs/${NODE3_NAME}/${NODE3_NAME}.key
+      - xpack.security.http.ssl.certificate=certs/${NODE3_NAME}/${NODE3_NAME}.crt
       - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
       - xpack.security.http.ssl.verification_mode=certificate
       - xpack.security.transport.ssl.enabled=true
-      - xpack.security.transport.ssl.key=certs/es03/es03.key
-      - xpack.security.transport.ssl.certificate=certs/es03/es03.crt
+      - xpack.security.transport.ssl.key=certs/${NODE3_NAME}/${NODE3_NAME}.key
+      - xpack.security.transport.ssl.certificate=certs/${NODE3_NAME}/${NODE3_NAME}.crt
       - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
       - xpack.security.transport.ssl.verification_mode=certificate
       - xpack.license.self_generated.type=${LICENSE}
+      - KIBANA_USERNAME=${KIBANA_USERNAME}
+      - KIBANA_PASSWORD=${KIBANA_PASSWORD}
     mem_limit: ${MEM_LIMIT_ES}
     ulimits:
       memlock:
         soft: -1
         hard: -1
+      #nofile:
+      #  soft: 65536
+      #  hard: 65536
+      #nproc:
+      #  soft: 2048
+      #  hard: 2048
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "curl -s --cacert config/certs/ca/ca.crt https://localhost:${ES_PORT} | grep -q 'missing authentication credentials'",
+          "curl --fail -k -s -u elastic:${ELASTIC_PASSWORD} --cacert config/certs/ca/ca.crt https://${NODE3_NAME}:9200"
         ]
       interval: 10s
       timeout: 10s
@@ -241,12 +276,6 @@ services:
     depends_on:
       es01:
         condition: service_healthy
-      es02:
-        condition: service_healthy
-      es03:
-        condition: service_healthy
-      pareto-anywhere:
-        condition: service_healthy
     image: docker.elastic.co/kibana/kibana:${STACK_VERSION}
     volumes:
       - certs:/usr/share/kibana/config/certs
@@ -254,17 +283,23 @@ services:
     ports:
       - ${KIBANA_PORT}:5601
     environment:
-      - SERVERNAME=kibana
-      - ELASTICSEARCH_HOSTS=https://es01:${ES_PORT}
-      - ELASTICSEARCH_USERNAME=kibana_system
+      - SERVERNAME=${KIBANA_SERVER_HOST}
+      - ELASTICSEARCH_HOSTS=https://${NODE2_NAME}:${ES_PORT}
+      - ELASTICSEARCH_USERNAME=${KIBANA_USERNAME}
       - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
       - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=config/certs/ca/ca.crt
+      - elasticsearch.ssl.verificationMode=none
+      # - XPACK_REPORTING_ROLES_ENABLED=false
+      - XPACK_REPORTING_KIBANASERVER_HOSTNAME=localhost
+      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=${SAVEDOBJECTS_ENCRYPTIONKEY}
+      - XPACK_SECURITY_ENCRYPTIONKEY=${REPORTING_ENCRYPTIONKEY}
+      - XPACK_REPORTING_ENCRYPTIONKEY=${SECURITY_ENCRYPTIONKEY}
     mem_limit: ${MEM_LIMIT_KIBANA}
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "curl -s -I http://localhost:5601 | grep -q 'HTTP/1.1 302 Found'",
+          "curl -s -I http://localhost:5601 | grep -q 'HTTP/1.1 302 Found'"
         ]
       interval: 10s
       timeout: 10s
@@ -294,7 +329,7 @@ services:
     ports:
       - ${BACKEND_PORT}:${BACKEND_PORT}
     environment:
-      - ES_NODE=https://es01:${ES_PORT}
+      - ES_NODE=https://${NODE1_NAME}:${ES_PORT}
     mem_limit: ${MEM_LIMIT_BACKEND}
     ulimits:
       memlock:

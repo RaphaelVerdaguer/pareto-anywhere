@@ -1,0 +1,19 @@
+#!/bin/bash
+
+# Générer de nouvelles valeurs aléatoires
+NEW_SAVEDOBJECTS_ENCRYPTIONKEY=$(openssl rand -hex 16)
+NEW_REPORTING_ENCRYPTIONKEY=$(openssl rand -hex 16)
+NEW_SECURITY_ENCRYPTIONKEY=$(openssl rand -hex 16)
+
+# Remplacer les anciennes valeurs par les nouvelles dans le fichier .env
+sed -i "s/^SAVEDOBJECTS_ENCRYPTIONKEY=.*/SAVEDOBJECTS_ENCRYPTIONKEY=${NEW_SAVEDOBJECTS_ENCRYPTIONKEY}/" .env
+sed -i "s/^REPORTING_ENCRYPTIONKEY=.*/REPORTING_ENCRYPTIONKEY=${NEW_REPORTING_ENCRYPTIONKEY}/" .env
+sed -i "s/^SECURITY_ENCRYPTIONKEY=.*/SECURITY_ENCRYPTIONKEY=${NEW_SECURITY_ENCRYPTIONKEY}/" .env
+
+# Afficher les nouvelles valeurs
+echo "Generated values:"
+echo "SAVEDOBJECTS_ENCRYPTIONKEY=${NEW_SAVEDOBJECTS_ENCRYPTIONKEY}"
+echo "REPORTING_ENCRYPTIONKEY=${NEW_REPORTING_ENCRYPTIONKEY}"
+echo "SECURITY_ENCRYPTIONKEY=${NEW_SECURITY_ENCRYPTIONKEY}"
+
+echo "Values updated in .env file."
