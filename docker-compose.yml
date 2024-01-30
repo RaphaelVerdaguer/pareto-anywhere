@@ -91,6 +91,7 @@ services:
         curl -X POST --cacert config/certs/ca/ca.crt "https://es01:${ES_PORT}/_security/user/${BACKEND_USER}" -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" -d "{\"password\": \"${BACKEND_PASSWORD}\", \"enabled\": true, \"roles\": [\"editor\"], \"full_name\": \"${BACKEND_USER}\", \"email\": \"\", \"metadata\": {\"intelligence\": 1}}"
         echo "All done!";
       '
+    mem_limit: ${MEM_LIMIT_SETUP}
     healthcheck:
       test: ["CMD-SHELL", "[ -f config/certs/es01/es01.crt ]"]
       interval: 1s
