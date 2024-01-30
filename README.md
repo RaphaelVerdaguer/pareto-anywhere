@@ -1,7 +1,7 @@
 Pareto Anywhere
 ===============
 
-__Pareto Anywhere__ is the open source middleware that enables context-aware physical spaces—_anywhere._
+__Pareto Anywhere__ is the open source IoT middleware that makes sense of who/what is where/how in an application/technology/vendor-agnostic way.
 
 ![Overview of Pareto Anywhere](https://reelyactive.github.io/pareto-anywhere/images/overview.png)
 
@@ -35,6 +35,16 @@ _Alternatively_, install the __pareto-anywhere__ package globally with `npm inst
     pareto-anywhere
 
 Either way, browse to [localhost:3001](http://localhost:3001) to see __Pareto Anywhere__ running, and to explore the web apps and APIs.
+
+
+Updating
+--------
+
+An existing installation can be updated by running the following commands from the root of the cloned repository:
+
+    git fetch
+    git pull origin master --recurse-submodules
+    npm install
 
 
 What is pareto-anywhere?
@@ -74,6 +84,7 @@ __pareto-anywhere__ listens for [ambient data](https://www.reelyactive.com/ambie
 | [barnowl-huawei](https://github.com/reelyactive/barnowl-huawei) | UDP Huawei packets on port 50010 |
 | [barnowl-impinj](https://github.com/reelyactive/barnowl-impinj) | HTTP POST on __/impinj__ |
 | [barnowl-rfcontrols](https://github.com/reelyactive/barnowl-rfcontrols) | STOMP over WebSocket |
+| [barnowl-csl](https://github.com/reelyactive/barnowl-csl)     | HTTP POST on __/csl__ |
 
 Additional sources can often be added simply by running `npm run forwarder` of the corresponding barnowl-x module, such as [barnowl-hci](https://github.com/reelyactive/barnowl-hci/#pareto-anywhere-integration).
 
@@ -92,14 +103,47 @@ The __pareto-anywhere__ APIs are served by the following open source software mo
 | [json-silo](https://github.com/reelyactive/json-silo) | __/stories__ |
 
 
+Config Files
+------------
+
+The __/config__ folder accepts the following run-time configuration files:
+
+### enocean.json
+
+EnOcean Alliance devices require a mapping between their device identifier and their EnOcean Equipment Profile (EEP) in order for their payload to be decoded by [advlib-esp](https://github.com/reelyactive/advlib-esp) and its sub-libraries.  The __/config/enocean.json__ file has the following format:
+
+    {
+      "05174fc4/7": { "eepType": "A5-04-03" },
+      "0591ee96/7": { "eepType": "D5-00-01" },
+      "04141559/7": { "eepType": "D2-14-41" },
+      "002eea1f/7": { "eepType": "F6-02-02" }
+    }
+
+Note that the 32-bit device identifier is specified in _lowercase_ hexadecimal and suffixed with "/7" which represents the [EURID-32 idType](https://reelyactive.github.io/diy/cheatsheet/#idtype), while the eepType is specified in _UPPERCASE_ hexadecimal.
+
+
 Native integrations
 -------------------
 
 __Pareto Anywhere__ integrates with just about any data store, stream processor or application either via existing APIs or the addition of a connector module.  Additionally, the following integrations are _natively_ supported by  __pareto-anywhere__.
 
+### InfluxDB v2
+
+From the root folder of this repository, start Pareto Anywhere with the command:
+
+    npm run influxdb2
+
+If prompted, install [barnacles-influxdb2](https://github.com/reelyactive/barnacles-influxdb2/) with the command `npm install barnacles-influxdb2`.  __pareto-anywhere__ will automatically write __dynamb__ data to a local InfluxDB v2 database, if installed and running.
+
+The local InfluxDB v2 instance is expected at [http://localhost:8086](http://localhost:8086/) with org "reelyActive" and bucket "pareto-anywhere".  Set INFLUXDB_TOKEN as an environment variable.
+
 ### Elastic Stack
 
-__pareto-anywhere__ will automatically write to a local Elasticsearch database, if installed and running, so that the __raddec__ and __dynamb__ data may in turn be [analysed in Kibana](https://reelyactive.github.io/diy/kibana/).
+From the root folder of this repository, start Pareto Anywhere with the command:
+
+    npm run elasticsearch
+
+If prompted, install [barnacles-elasticsearch](https://github.com/reelyactive/barnacles-elasticsearch/) with the command `npm install barnacles-elasticsearch`.  __pareto-anywhere__ will automatically write to a local Elasticsearch database, if installed and running, so that the __raddec__ and __dynamb__ data may in turn be [analysed in Kibana](https://reelyactive.github.io/diy/kibana/).
 - __pareto-anywhere__ v1.8 and above expect an Elasticsearch 8.x instance, offering nominal backwards-compatiblility with 7.x
 - __pareto-anywhere__ v1.7 and below require an Elasticsearch 7.x instance
 
@@ -182,6 +226,8 @@ In 2019, __Pareto Anywhere__ was created to supersede [hlc-server](https://githu
 
 __pareto-anywhere__ v1.5.0 adopts [chickadee](https://github.com/reelyactive/chickadee) v1.4.0 which migrates to [ESMapDB](https://github.com/reelyactive/esmapdb) from [NeDB](https://github.com/louischatriot/nedb). If upgrading from a previous version, any stored associations will need to be recreated.
 
+__pareto-anywhere__ v1.13.0 removes explicit database dependencies (i.e. Elasticsearch), instead allowing the database to be specified at runtime (ex: `npm run elasticsearch` or `npm run influxdb2`).
+
 Learn more about the __Pareto by reelyActive__ collection at [www.reelyactive.com/pareto](https://www.reelyactive.com/pareto/)
 
 
@@ -196,15 +242,13 @@ Security
 
 Consult our [security policy](SECURITY.md) for best practices using this open source software and to report vulnerabilities.
 
-[![Known Vulnerabilities](https://snyk.io/test/github/reelyactive/pareto-anywhere/badge.svg)](https://snyk.io/test/github/reelyactive/pareto-anywhere)
-
 
 License
 -------
 
 MIT License
 
-Copyright (c) 2020-2023 reelyActive
+Copyright (c) 2020-2024 reelyActive
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 

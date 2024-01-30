@@ -19,4 +19,4 @@ RUN mkdir -p data/associations data/images data/stories data/features && \
     touch data/associations/LOCK data/images/LOCK data/stories/LOCK data/features/LOCK
 EXPOSE 3001/tcp 50000/udp 50001/udp
 
-CMD ["dumb-init","npm","run", "start"]
+CMD ["dumb-init","npm","run", "elasticsearch"]

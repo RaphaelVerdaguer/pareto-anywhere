@@ -1,0 +1,1 @@
+curl -X GET -k -u elastic:Pizza1213-elastic "https://localhost:9200/?pretty" -H 'Content-Type: application/json'
