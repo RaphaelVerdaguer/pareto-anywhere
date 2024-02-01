@@ -49,51 +49,41 @@ services:
           echo "Set the KIBANA_PASSWORD environment variable in the .env file";
           exit 1;
         fi;
-        if [ ! -f config/certs/ca.zip ]; then
-          echo "Creating CA";
-          bin/elasticsearch-certutil ca --silent --pem -out config/certs/ca.zip;
-          unzip config/certs/ca.zip -d config/certs;
-        fi;
-        if [ ! -f config/certs/certs.zip ]; then
-          echo "Creating certs";
-          echo -ne \
-          "instances:\n"\
-          "  - name: ${NODE1_NAME}\n"\
-          "    dns:\n"\
-          "      - ${NODE1_NAME}\n"\
-          "      - localhost\n"\
-          "    ip:\n"\
-          "      - 127.0.0.1\n"\
-          "  - name: ${NODE2_NAME}\n"\
-          "    dns:\n"\
-          "      - ${NODE2_NAME}\n"\
-          "      - localhost\n"\
-          "    ip:\n"\
-          "      - 127.0.0.1\n"\
-          "  - name: ${NODE3_NAME}\n"\
-          "    dns:\n"\
-          "      - ${NODE3_NAME}\n"\
-          "      - localhost\n"\
-          "    ip:\n"\
-          "      - 127.0.0.1\n"\
-          > config/certs/instances.yml;
-          bin/elasticsearch-certutil cert --silent --pem -out config/certs/certs.zip --in config/certs/instances.yml --ca-cert config/certs/ca/ca.crt --ca-key config/certs/ca/ca.key;
-          unzip config/certs/certs.zip -d config/certs;
-        fi;
-        echo "Setting file permissions"
-        chown -R root:root config/certs;
-        find . -type d -exec chmod 750 \{\} \;;
-        find . -type f -exec chmod 640 \{\} \;;
+        # Check if CA certificate exists
+        if [ ! -f config/certs/ca/ca.crt ]; then
+          echo "Generating Wildcard SSL certs for ES (in PEM format)..."
+          bin/elasticsearch-certutil ca --pem --days ${DAYS} --out config/certs/elkstack-ca.zip
+          unzip -d config/certs config/certs/elkstack-ca.zip
+          bin/elasticsearch-certutil cert \
+            --name elkstack-certs \
+            --ca-cert config/certs/ca/ca.crt \
+            --ca-key config/certs/ca/ca.key \
+            --pem \
+            --dns "*.${DOMAIN_SUFFIX},localhost,${NODE1_NAME},${NODE2_NAME},${NODE3_NAME}" \
+            --ip 127.0.0.1 \
+            --ip 127.0.0.1 \
+            --ip 127.0.0.1 \
+            --days ${DAYS} \
+            --out config/certs/elkstack-certs.zip
+          unzip -d config/certs config/certs/elkstack-certs.zip
+        else
+          echo "CA certificate already exists. Skipping Certificates generation."
+        fi
         echo "Waiting for Elasticsearch availability";
-        until curl -s --cacert config/certs/ca/ca.crt https://${NODE1_NAME}:${ES_PORT} | grep -q "missing authentication credentials"; do
+        until curl -s --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" https://${NODE1_NAME}:${ES_PORT} | grep -q "${CLUSTER_NAME}"; do
         sleep 5
         echo -n "Waiting for Elasticsearch availability..."
         done;
-        echo "Setting kibana_system password";
-        until curl -s -X POST --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://${NODE1_NAME}:${ES_PORT}/_security/user/kibana_system/_password -d "{\"password\":\"${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do
-        sleep 5
-        echo -n "Try setting kibana_system password..."
-        done;
+        # Set kibana_system password
+        if curl -sk -XGET --cacert config/certs/ca/ca.crt "https://${NODE1_NAME}:9200" -u "kibana_system:${KIBANA_PASSWORD}" | grep -q "${CLUSTER_NAME}"; then
+          echo "Password for kibana_system is working. Proceeding with Elasticsearch setup for kibana_system."
+        else
+          echo "Failed to authenticate with kibana_system password. Trying to set the password for kibana_system."
+          until curl -s -XPOST --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://${NODE1_NAME}:${ES_PORT}/_security/user/kibana_system/_password -d "{\"password\":\"${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do
+          sleep 5
+          echo -n "Try setting kibana_system password..."
+          done;
+        fi
         #echo "Setting kibana ${RAPHAEL_USER} password";
         curl -X POST --cacert config/certs/ca/ca.crt "https://${NODE1_NAME}:${ES_PORT}/_security/user/${RAPHAEL_USER}" -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" -d "{\"password\": \"${RAPHAEL_PASSWORD}\", \"enabled\": true, \"roles\": [\"superuser\", \"kibana_admin\"], \"full_name\": \"${RAPHAEL_USER}\", \"email\": \"\", \"metadata\": {\"intelligence\": 1}}"
         #echo "Setting kibana ${MICKAEL_USER} password";
@@ -107,7 +97,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "[ -f config/certs/${NODE1_NAME}/${NODE1_NAME}.crt ]"
+          "[ -f config/certs/elkstack-certs/elkstack-certs.crt ]"
         ]
       interval: 1s
       timeout: 5s
@@ -121,14 +111,20 @@ services:
       setup:
         condition: service_healthy
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    ports:
+      - ${ES_PORT}:${ES_PORT}
     volumes:
       - certs:/usr/share/elasticsearch/config/certs
       - esdata01:/usr/share/elasticsearch/data
-    ports:
-      - ${ES_PORT}:${ES_PORT}
+      - backup:/usr/share/elasticsearch/backup
     environment:
+      - path.repo=/usr/share/elasticsearch/backup
       - node.name=${NODE1_NAME}
-      - node.attr.data=hot #node.roles=data_hot
+      #- network.publish_host=${NODE1}
+      #- "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      #- xpack.security.enrollment.enabled=false
+      #- xpack.security.autoconfiguration.enabled=false
+      #- node.attr.data=hot #node.roles=data_hot
       - cluster.name=${CLUSTER_NAME}
       - cluster.initial_master_nodes=${NODE1_NAME},${NODE2_NAME},${NODE3_NAME}
       - discovery.seed_hosts=${NODE1_NAME},${NODE2_NAME},${NODE3_NAME}
@@ -136,13 +132,13 @@ services:
       - bootstrap.memory_lock=true
       - xpack.security.enabled=true
       - xpack.security.http.ssl.enabled=true
-      - xpack.security.http.ssl.key=certs/${NODE1_NAME}/${NODE1_NAME}.key
-      - xpack.security.http.ssl.certificate=certs/${NODE1_NAME}/${NODE1_NAME}.crt
+      - xpack.security.http.ssl.key=certs/elkstack-certs/elkstack-certs.key
+      - xpack.security.http.ssl.certificate=certs/elkstack-certs/elkstack-certs.crt
       - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
       - xpack.security.http.ssl.verification_mode=certificate
       - xpack.security.transport.ssl.enabled=true
-      - xpack.security.transport.ssl.key=certs/${NODE1_NAME}/${NODE1_NAME}.key
-      - xpack.security.transport.ssl.certificate=certs/${NODE1_NAME}/${NODE1_NAME}.crt
+      - xpack.security.transport.ssl.key=certs/elkstack-certs/elkstack-certs.key
+      - xpack.security.transport.ssl.certificate=certs/elkstack-certs/elkstack-certs.crt
       - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
       - xpack.security.transport.ssl.verification_mode=certificate
       - xpack.license.self_generated.type=${LICENSE}
@@ -179,9 +175,15 @@ services:
     volumes:
       - certs:/usr/share/elasticsearch/config/certs
       - esdata02:/usr/share/elasticsearch/data
+      - backup:/usr/share/elasticsearch/backup
     environment:
+      - path.repo=/usr/share/elasticsearch/backup
       - node.name=${NODE2_NAME}
-      - node.attr.data=warm #      - node.roles=data_warm
+      #- network.publish_host=${NODE2}
+      #- "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      #- xpack.security.enrollment.enabled=false
+      #- xpack.security.autoconfiguration.enabled=false
+      #- node.attr.data=warm #      - node.roles=data_warm
       - cluster.name=${CLUSTER_NAME}
       - cluster.initial_master_nodes=${NODE1_NAME},${NODE2_NAME},${NODE3_NAME}
       - discovery.seed_hosts=${NODE1_NAME},${NODE2_NAME},${NODE3_NAME}
@@ -189,13 +191,13 @@ services:
       - bootstrap.memory_lock=true
       - xpack.security.enabled=true
       - xpack.security.http.ssl.enabled=true
-      - xpack.security.http.ssl.key=certs/${NODE2_NAME}/${NODE2_NAME}.key
-      - xpack.security.http.ssl.certificate=certs/${NODE2_NAME}/${NODE2_NAME}.crt
+      - xpack.security.http.ssl.key=certs/elkstack-certs/elkstack-certs.key
+      - xpack.security.http.ssl.certificate=certs/elkstack-certs/elkstack-certs.crt
       - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
       - xpack.security.http.ssl.verification_mode=certificate
       - xpack.security.transport.ssl.enabled=true
-      - xpack.security.transport.ssl.key=certs/${NODE2_NAME}/${NODE2_NAME}.key
-      - xpack.security.transport.ssl.certificate=certs/${NODE2_NAME}/${NODE2_NAME}.crt
+      - xpack.security.transport.ssl.key=certs/elkstack-certs/elkstack-certs.key
+      - xpack.security.transport.ssl.certificate=certs/elkstack-certs/elkstack-certs.crt
       - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
       - xpack.security.transport.ssl.verification_mode=certificate
       - xpack.license.self_generated.type=${LICENSE}
@@ -206,6 +208,12 @@ services:
       memlock:
         soft: -1
         hard: -1
+      #nofile:
+      #  soft: 65536
+      #  hard: 65536
+      #nproc:
+      #  soft: 2048
+      #  hard: 2048
     healthcheck:
       test:
         [
@@ -226,9 +234,15 @@ services:
     volumes:
       - certs:/usr/share/elasticsearch/config/certs
       - esdata03:/usr/share/elasticsearch/data
+      - backup:/usr/share/elasticsearch/backup
     environment:
+      - path.repo=/usr/share/elasticsearch/backup
       - node.name=${NODE3_NAME}
-      - node.attr.data=cold #      - node.roles=data_cold
+      #- network.publish_host=${NODE3}
+      #- "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      #- xpack.security.enrollment.enabled=false
+      #- xpack.security.autoconfiguration.enabled=false
+      #- node.attr.data=cold #      - node.roles=data_cold
       - cluster.name=${CLUSTER_NAME}
       - cluster.initial_master_nodes=${NODE1_NAME},${NODE2_NAME},${NODE3_NAME}
       - discovery.seed_hosts=${NODE1_NAME},${NODE2_NAME},${NODE3_NAME}
@@ -236,13 +250,13 @@ services:
       - bootstrap.memory_lock=true
       - xpack.security.enabled=true
       - xpack.security.http.ssl.enabled=true
-      - xpack.security.http.ssl.key=certs/${NODE3_NAME}/${NODE3_NAME}.key
-      - xpack.security.http.ssl.certificate=certs/${NODE3_NAME}/${NODE3_NAME}.crt
+      - xpack.security.http.ssl.key=certs/elkstack-certs/elkstack-certs.key
+      - xpack.security.http.ssl.certificate=certs/elkstack-certs/elkstack-certs.crt
       - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
       - xpack.security.http.ssl.verification_mode=certificate
       - xpack.security.transport.ssl.enabled=true
-      - xpack.security.transport.ssl.key=certs/${NODE3_NAME}/${NODE3_NAME}.key
-      - xpack.security.transport.ssl.certificate=certs/${NODE3_NAME}/${NODE3_NAME}.crt
+      - xpack.security.transport.ssl.key=certs/elkstack-certs/elkstack-certs.key
+      - xpack.security.transport.ssl.certificate=certs/elkstack-certs/elkstack-certs.crt
       - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
       - xpack.security.transport.ssl.verification_mode=certificate
       - xpack.license.self_generated.type=${LICENSE}
@@ -289,7 +303,7 @@ services:
       - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
       - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=config/certs/ca/ca.crt
       - elasticsearch.ssl.verificationMode=none
-      # - XPACK_REPORTING_ROLES_ENABLED=false
+      - XPACK_REPORTING_ROLES_ENABLED=false
       - XPACK_REPORTING_KIBANASERVER_HOSTNAME=localhost
       - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=${SAVEDOBJECTS_ENCRYPTIONKEY}
       - XPACK_SECURITY_ENCRYPTIONKEY=${REPORTING_ENCRYPTIONKEY}
@@ -311,12 +325,6 @@ services:
     restart: unless-stopped
     depends_on:
       es01:
-        condition: service_healthy
-      es02:
-        condition: service_healthy
-      es03:
-        condition: service_healthy
-      pareto-anywhere:
         condition: service_healthy
     build:
       context: ../app-ble-backend/
@@ -367,6 +375,10 @@ services:
 volumes:
   certs:
     driver: local
+    driver_opts:
+      type: nfs
+      o: "addr=192.168.1.100,nfsvers=4,rw"
+      device: ":/media/raphael/HDD/nfs/elasticsearch/certs"
   esdata01:
     driver: local
   esdata02:
@@ -375,6 +387,12 @@ volumes:
     driver: local
   kibanadata:
     driver: local
+  backup:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: "addr=192.168.1.100,nfsvers=4,rw"
+      device: ":/media/raphael/HDD/nfs/elasticsearch/backup"
 
 networks:
   pareto-anywhere-elastic:
